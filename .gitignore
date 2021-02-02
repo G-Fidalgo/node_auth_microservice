@@ -94,5 +94,8 @@ db/
 # Typescript Build folder
 dist/
 
+# To Do List
+.toDo.md
+
 .idea
 .scannerwork
