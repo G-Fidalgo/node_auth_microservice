@@ -8,11 +8,13 @@
     "loggin": false,
     "entities": [
         "src/entity/**/*.ts"
-    ],
-    "migrations": [
+     ],
+     "migrations": [
         "src/migration/**/*.ts"
-    ],
-    "suscribers": [
+     ],
+     "subscribers": [
         "src/subscriber/**/*.ts"
-    ]
-}
+     ],
+     "cli": {
+       "migrationsDir": "src/migration"
+     }}

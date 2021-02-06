@@ -95,7 +95,7 @@ db/
 dist/
 
 # To Do List
-.toDo.md
+toDo.md
 
 .idea
 .scannerwork

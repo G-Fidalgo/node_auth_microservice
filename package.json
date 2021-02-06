@@ -7,7 +7,10 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/app.js",
     "dev": "nodemon src/app.ts",
-    "build": "ttsc"
+    "build": "ttsc",
+    "migrate": "ts-node --project ./tsconfig.json  --require tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run",
+    "revert": "ts-node --project ./tsconfig.json  --require tsconfig-paths/register ./node_modules/typeorm/cli.js migration:revert",
+    "initdb": "dropdb db_dev; createdb -E UTF8 db_dev"
   },
   "author": "gonzalo fidalgo",
   "license": "MIT",
@@ -20,7 +23,6 @@
     "graphql": "^15.5.0",
     "jsonwebtoken": "^8.5.1",
     "pg": "^8.5.1",
-    "reflect-metadata": "^0.1.13",
     "typeorm": "^0.2.30",
     "uuid": "^8.3.2"
   },
@@ -34,6 +36,7 @@
     "@types/uuid": "^8.3.0",
     "nodemon": "^2.0.7",
     "prettier": "^2.2.1",
+    "reflect-metadata": "^0.1.13",
     "ts-node": "^9.1.1",
     "tsconfig-paths": "^3.9.0",
     "ttypescript": "^1.5.12",

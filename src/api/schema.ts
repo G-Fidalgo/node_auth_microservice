@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { buildSchema } from 'graphql';
 import User from '@auth-entity/user';
 import Result from '@auth-model/result';
-import { JWT, JWTActionType } from '@auth-utils/jwt';
+import Access from '@auth-entity/access';
 
 /**
  * Schema for GrapQL
@@ -56,7 +56,7 @@ export const root = {
     }
 
     const user = result.getObject()!;
-    const confirmToken = JWT.encode(user.ukey, user.refreshIndex, JWTActionType.confirmUser);
+    const confirmToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_CONFIRM!);
     if (confirmToken == undefined) {
       context.res.status(500);
       throw new Error('Confirmation failed');
@@ -65,19 +65,19 @@ export const root = {
   },
 
   confirm: async ({ email }: { email: string }, context: any): Promise<boolean> => {
-    const result = parseAccessToken(context.req);
+    let result = parseAccessToken(context.req);
     if (result.isError()) {
       context.res.status(result.status);
       throw result.getError();
     }
 
     const claims = result.getObject()!;
-    if (claims.act != JWTActionType.confirmUser) {
+    if (claims.act != Access.idFromName(process.env.ACCESS_TYPE_CONFIRM!)) {
       context.res.status(401);
       throw new Error('Not authorized');
     }
 
-    const user = await User.getByUserKey(claims.uky);
+    const user = await User.getByUserKey(claims.uky, claims.rti);
 
     if (user == undefined) {
       context.res.status(404);
@@ -89,17 +89,23 @@ export const root = {
       throw new Error('Not authorized');
     }
 
-    if (user.confirmed) {
-      context.res.status(400);
-      throw new Error('User already confirmed');
-    }
+    // if (user.confirmed) {
+    //   context.res.status(400);
+    //   throw new Error('User already confirmed');
+    // }
 
-    user.confirmed = true;
-    const success = await user.save();
+    // user.confirmed = true;
+    // const success = await user.save();
 
-    if (!success) {
-      context.res.status(500);
-      throw new Error('Confirmation failed');
+    // if (!success) {
+    //   context.res.status(500);
+    //   throw new Error('Confirmation failed');
+    // }
+
+    result = await user.updateConfirmed();
+    if (result.isError()) {
+      context.res.status(result.status);
+      throw result.getError()!;
     }
 
     context.res.status(201);
@@ -112,9 +118,17 @@ export const root = {
 
     if (result.isError()) throw result.getError()!;
 
-    const data = result.getObject()!;
-    setRefreshTokenCookie(context.res, data.refreshToken);
-    return data;
+    const user = result.getObject()!;
+
+    const accessToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_USER!);
+    const refreshToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_REFRESH!);
+    if (accessToken == undefined || refreshToken == undefined) {
+      context.res.status(500);
+      return new Error('Login failed'), 500;
+    }
+    context.res.status(result.status);
+    setRefreshTokenCookie(context.res, refreshToken);
+    return { ukey: user.ukey, access_token: accessToken };
   },
 
   profile: async ({}: {}, context: any) => {
@@ -125,7 +139,7 @@ export const root = {
     }
     const claims = result.getObject()!;
 
-    const user = await User.getByUserKey(claims.uky);
+    const user = await User.getByUserKey(claims.uky, claims.rti);
 
     if (user == undefined) {
       context.res.status(404);
@@ -140,24 +154,31 @@ export const root = {
     context.res.status(401);
     if (token == undefined) throw new Error('Not authorized');
 
-    const claims = JWT.decode(token, JWTActionType.refreshAccess);
+    const claims = Access.decode(token, Access.idFromName(process.env.ACCESS_TYPE_REFRESH!));
     if (claims == undefined) throw new Error('Not authorized');
 
-    const user = await User.getByUserKey(claims.uky);
+    const user = await User.getByUserKey(claims.uky, claims.rti);
     if (user == undefined) throw new Error('Not authorized');
 
     if (user.refreshIndex != claims.rti) throw new Error('Not authorized');
 
-    user.refreshIndex = user.refreshIndex + 1;
+    // user.refreshIndex = user.refreshIndex + 1;
 
-    const succes = await user.save();
-    if (!succes) {
-      context.res.status(500);
-      throw new Error('Refresh failed');
+    // const succes = await user.save();
+    // if (!succes) {
+    //   context.res.status(500);
+    //   throw new Error('Refresh failed');
+    // }
+    const result = await user.updateRefreshIndex();
+    if (result.isError()) {
+      context.res.status(result.status);
+      throw result.getError()!;
     }
 
-    const refreshToken = JWT.encode(user.ukey, user.refreshIndex, JWTActionType.refreshAccess);
-    const accessToken = JWT.encode(user.ukey, user.refreshIndex, JWTActionType.userAccess);
+    user.refreshIndex = user.refreshIndex + 1;
+
+    const refreshToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_REFRESH!);
+    const accessToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_REFRESH!);
     if (refreshToken == undefined || accessToken == undefined) {
       context.res.status(500);
       throw new Error('Refresh failed');
@@ -178,13 +199,13 @@ function parseAccessToken(request: Request): Result<any> {
   if (headerToken.length != 2) return new Result(new Error('Not authorized'), 401);
 
   const token = headerToken[1];
-  const claims = JWT.decode(token, JWTActionType.userAccess);
+  const claims = Access.decode(token, Access.idFromName(process.env.ACCESS_TYPE_USER!));
   if (claims == undefined) return new Result(new Error('Not authorized'), 401);
   return new Result(claims, 200);
 }
 // Gestionar un posible fallo cuando la cookie sea undefined
 function setRefreshTokenCookie(response: Response, token: string) {
-  const refreshExpiration = JWT.refreshExpiration();
+  const refreshExpiration = Access.refreshExpiration();
   response.cookie(process.env.REFRESH_TOKEN_NAME!, token, {
     domain: process.env.REFRESH_TOKEN_DOMAIN!,
     secure: process.env.REFRESH_TOKEN_SECURE! == 'true',

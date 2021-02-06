@@ -24,10 +24,30 @@ export default class Databse<T> {
     }
   }
 
-  public async get(filter: Object): Promise<any | undefined> {
+  public async update(table: string, values: object, filter: string): Promise<boolean> {
+    try {
+      const result = await this.repo.createQueryBuilder(table).update().set(values).where(filter).execute();
+      return result.affected != undefined && result.affected > 0;
+    } catch (error) {
+      console.log(error);
+      return false;
+    }
+  }
+
+  public async get(filter: Object): Promise<T | undefined> {
     try {
       // e.g filter = { ukey: '123-key};
       return await this.repo.findOne(filter);
+    } catch (error) {
+      console.log(error);
+      return undefined;
+    }
+  }
+
+  public async all(): Promise<T[] | undefined> {
+    try {
+      const rows = await this.repo.find();
+      return rows;
     } catch (error) {
       console.log(error);
       return undefined;
