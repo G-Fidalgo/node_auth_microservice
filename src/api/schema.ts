@@ -1,8 +1,7 @@
-import { Request, Response } from 'express';
 import { buildSchema } from 'graphql';
 import User from '@auth-entity/user';
-import Result from '@auth-model/result';
 import Access from '@auth-entity/access';
+import { parseAccessToken, setRefreshTokenCookie } from './helper';
 
 /**
  * Schema for GrapQL
@@ -183,34 +182,8 @@ export const root = {
       context.res.status(500);
       throw new Error('Refresh failed');
     }
-    console.log('HOLA');
-    console.log(accessToken);
     setRefreshTokenCookie(context.res, refreshToken);
     context.res.status(200);
     return { ukey: user.ukey, access_token: accessToken };
   }
 };
-
-function parseAccessToken(request: Request): Result<any> {
-  const authHeader = request.headers['authorization'];
-  if (authHeader == undefined) return new Result(new Error('Not authorized'), 401);
-
-  const headerToken = authHeader.split(' ');
-  if (headerToken.length != 2) return new Result(new Error('Not authorized'), 401);
-
-  const token = headerToken[1];
-  const claims = Access.decode(token, Access.idFromName(process.env.ACCESS_TYPE_USER!));
-  if (claims == undefined) return new Result(new Error('Not authorized'), 401);
-  return new Result(claims, 200);
-}
-// Gestionar un posible fallo cuando la cookie sea undefined
-function setRefreshTokenCookie(response: Response, token: string) {
-  const refreshExpiration = Access.refreshExpiration();
-  response.cookie(process.env.REFRESH_TOKEN_NAME!, token, {
-    domain: process.env.REFRESH_TOKEN_DOMAIN!,
-    secure: process.env.REFRESH_TOKEN_SECURE! == 'true',
-    httpOnly: process.env.REFRESH_TOKEN_HTTPONLY! == 'true',
-    expires: refreshExpiration,
-    maxAge: refreshExpiration.getTime()
-  });
-}
