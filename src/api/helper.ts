@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import Result from '@auth-model/result';
 import Access from '@auth-entity/access';
+import User from '@auth-entity/user';
+import Mailer from '@auth-utils/mailer';
 
-export function parseAccessToken(request: Request): Result<any> {
+export function parseAccessToken(request: Request, accessId: number): Result<any> {
   const authHeader = request.headers['authorization'];
   if (authHeader == undefined) return new Result(new Error('Not authorized'), 401);
 
@@ -10,7 +12,7 @@ export function parseAccessToken(request: Request): Result<any> {
   if (headerToken.length != 2) return new Result(new Error('Not authorized'), 401);
 
   const token = headerToken[1];
-  const claims = Access.decode(token, Access.idFromName(process.env.ACCESS_TYPE_USER!));
+  const claims = Access.decode(token, accessId);
   if (claims == undefined) return new Result(new Error('Not authorized'), 401);
   return new Result(claims, 200);
 }
@@ -24,4 +26,59 @@ export function setRefreshTokenCookie(response: Response, token: string) {
     expires: refreshExpiration,
     maxAge: refreshExpiration.getTime()
   });
+}
+
+export async function handleSendEmailRequest(email: string, res: Response, isConfirmation: boolean, accessName: string): Promise<any> {
+  const user = await User.getUserByEmail(email);
+  if (user == undefined) {
+    res.status(404);
+    throw Error('User not found!');
+  }
+
+  if (isConfirmation && user.confirmed) {
+    res.status(401);
+    throw Error('Not authorized - User is already confirmed');
+  }
+
+  const accesToken = Access.encode(user.ukey, user.refreshIndex, accessName);
+  if (accesToken == undefined) {
+    res.status(500);
+    throw Error('Server error while encoding token');
+  }
+
+  isConfirmation ? Mailer.sendConfirmation(email, accesToken) : Mailer.sendForgotenPassword(email, accesToken);
+  res.status(200);
+  return { tmp_email_token: accesToken };
+}
+
+export async function handlePasswordChange(oldPassword: string | undefined, newPassword: string, confirmation: string, req: Request, res: Response, accessId: number): Promise<boolean> {
+  if (newPassword != confirmation) {
+    res.status(400);
+    throw new Error('Passwords do not match');
+  }
+
+  let result = parseAccessToken(req, accessId);
+  if (result.isError()) {
+    res.status(result.status);
+    throw result.getError()!;
+  }
+
+  const claims = result.getObject()!;
+  if (claims.act != accessId) {
+    res.status(401);
+    throw new Error('Not authorized');
+  }
+
+  const user = await User.getByUserKey(claims.uky, claims.rti);
+  if (user == undefined) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  result = await user.updatePassword(oldPassword, newPassword);
+  res.status(result.status);
+
+  if (result.isError()) throw result.isError()!;
+
+  return result.getObject()!;
 }

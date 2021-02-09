@@ -1,7 +1,7 @@
 import { buildSchema } from 'graphql';
 import User from '@auth-entity/user';
 import Access from '@auth-entity/access';
-import { parseAccessToken, setRefreshTokenCookie } from './helper';
+import { handlePasswordChange, handleSendEmailRequest, parseAccessToken, setRefreshTokenCookie } from './helper';
 
 /**
  * Schema for GrapQL
@@ -21,12 +21,15 @@ import { parseAccessToken, setRefreshTokenCookie } from './helper';
 export const schema = buildSchema(`
     type Query {
         profile: Profile
+        resendConfirmation(email: String!): TmpEmailResponse
+        forgotPassword(email: String!): TmpEmailResponse
     }
     type Mutation {
         register(email: String!, password: String!, confirmation: String!): RegisteredUser
         login(email: String!, password: String!): AccessToken
         confirm(email: String!): Boolean
         refresh: AccessToken
+        resetPassword(password: String!, confirmation: String!): Boolean
     }
 
     type Profile {
@@ -42,6 +45,10 @@ export const schema = buildSchema(`
     type AccessToken {
         ukey: ID
         access_token: ID
+    }
+
+    type TmpEmailResponse {
+      tmp_email_token: ID
     }
 `);
 
@@ -63,8 +70,12 @@ export const root = {
     return { ukey: user.ukey, tmp_confirm_token: confirmToken };
   },
 
+  resendConfirmation: async ({ email }: { email: string }, context: any) => {
+    return await handleSendEmailRequest(email, context.res, true, process.env.ACCESS_TYPE_CONFIRM!);
+  },
+
   confirm: async ({ email }: { email: string }, context: any): Promise<boolean> => {
-    let result = parseAccessToken(context.req);
+    let result = parseAccessToken(context.req, Access.idFromName(process.env.ACCESS_TYPE_CONFIRM!));
     if (result.isError()) {
       context.res.status(result.status);
       throw result.getError();
@@ -87,19 +98,6 @@ export const root = {
       context.res.status(401);
       throw new Error('Not authorized');
     }
-
-    // if (user.confirmed) {
-    //   context.res.status(400);
-    //   throw new Error('User already confirmed');
-    // }
-
-    // user.confirmed = true;
-    // const success = await user.save();
-
-    // if (!success) {
-    //   context.res.status(500);
-    //   throw new Error('Confirmation failed');
-    // }
 
     result = await user.updateConfirmed();
     if (result.isError()) {
@@ -131,13 +129,12 @@ export const root = {
   },
 
   profile: async ({}: {}, context: any) => {
-    const result = parseAccessToken(context.req);
+    const result = parseAccessToken(context.req, Access.idFromName(process.env.ACCESS_TYPE_USER!));
     if (result.isError()) {
       context.res.status(result.status);
       throw result.getError()!;
     }
     const claims = result.getObject()!;
-
     const user = await User.getByUserKey(claims.uky, claims.rti);
 
     if (user == undefined) {
@@ -159,31 +156,30 @@ export const root = {
     const user = await User.getByUserKey(claims.uky, claims.rti);
     if (user == undefined) throw new Error('Not authorized');
 
-    if (user.refreshIndex != claims.rti) throw new Error('Not authorized');
-
-    // user.refreshIndex = user.refreshIndex + 1;
-
-    // const succes = await user.save();
-    // if (!succes) {
-    //   context.res.status(500);
-    //   throw new Error('Refresh failed');
-    // }
     const result = await user.updateRefreshIndex();
     if (result.isError()) {
       context.res.status(result.status);
       throw result.getError()!;
     }
-
-    user.refreshIndex = user.refreshIndex + 1;
+    user.refreshIndex += 1;
 
     const refreshToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_REFRESH!);
-    const accessToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_REFRESH!);
+    const accessToken = Access.encode(user.ukey, user.refreshIndex, process.env.ACCESS_TYPE_USER!);
     if (refreshToken == undefined || accessToken == undefined) {
       context.res.status(500);
       throw new Error('Refresh failed');
     }
+
     setRefreshTokenCookie(context.res, refreshToken);
     context.res.status(200);
     return { ukey: user.ukey, access_token: accessToken };
+  },
+  forgotPassword: async ({ email }: { email: string }, context: any) => {
+    return await handleSendEmailRequest(email, context.res, false, process.env.ACCESS_TYPE_PASSWORD_RESET!);
+  },
+
+  resetPassword: async ({ password, confirmation }: { password: string; confirmation: string }, context: any) => {
+    const accessId = Access.idFromName(process.env.ACCESS_TYPE_PASSWORD_RESET!);
+    return await handlePasswordChange(undefined, password, confirmation, context.req, context.res, accessId);
   }
 };

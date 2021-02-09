@@ -34,19 +34,21 @@ export default class Access {
     this.id = 0;
     this.name = '';
     this.duration = 0;
-    this.durationUnit = '';
+    this.durationUnit = 'm';
     this.signature = '';
     this.createdAt = new Date();
   }
 
   // Call when we are creating our server, and it is going to load all the rows within our access table
-  static async load() {
+  static async load(): Promise<void> {
     if (accessItems.length > 0) return;
 
     const d = new Database<Access>(Access);
-    const rows = await d.all();
+    const a = await d.all();
 
-    rows?.forEach((x) => {
+    if (a == undefined) return;
+
+    a.forEach((x) => {
       accessIds.push(x.id);
       accessNames.push(x.name);
       accessItems.push(x);
@@ -54,22 +56,23 @@ export default class Access {
   }
 
   static encode(ukey: string, refreshIndex: number, accessName: string): string | undefined {
-    if (!accessNames.includes(accessName)) return undefined;
+    if (!accessNames.includes(accessName)) throw new Error(`Access name "${accessName}" is not defined in the database`);
 
     const position = accessNames.indexOf(accessName);
+    const accessId = accessIds[position];
     const accessItem = accessItems[position];
+
     try {
       const claims = {
         iss: process.env.JWT_ISSUER,
         uky: ukey,
-        act: accessItem.id,
+        act: accessId,
         rti: refreshIndex
       };
-
       const token = sign(claims, accessItem.signature, { expiresIn: accessItem.expiresIn() });
       return token;
-    } catch (error) {
-      console.log(error);
+    } catch (err) {
+      console.log(err);
       return undefined;
     }
   }
@@ -83,32 +86,28 @@ export default class Access {
     try {
       const claims = verify(token, accessItem.signature);
       return claims;
-    } catch (error) {
-      console.log(error);
+    } catch (err) {
+      console.log(err);
       return undefined;
     }
   }
 
-  static refreshExpiration() {
-    if (!accessNames.includes(process.env.ACCESS_TYPE_REFRESH!))
-      throw new Error(`Access name ${process.env.ACCESS_TYPE_REFRESH!} is not in database`);
-
+  static refreshExpiration(): Date {
+    if (!accessNames.includes(process.env.ACCESS_TYPE_REFRESH!)) throw new Error('ACCESS_TYPE_REFRESH name not defined in database');
     const position = accessNames.indexOf(process.env.ACCESS_TYPE_REFRESH!);
     const accessItem = accessItems[position];
-
     const d = new Date();
     d.setDate(d.getDate() + accessItem.duration);
     return d;
   }
 
   static idFromName(name: string): number {
-    if (!accessNames.includes(name)) throw new Error(`Access name ${name} is not in Database`);
-
+    if (!accessNames.includes(name)) throw new Error(`Access name "${name}" not defined in database`);
     const position = accessNames.indexOf(name);
     return accessIds[position];
   }
 
-  expiresIn() {
+  expiresIn(): string {
     return `${this.duration}${this.durationUnit}`;
   }
 }
