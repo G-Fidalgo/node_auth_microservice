@@ -6,12 +6,19 @@ import { root, schema } from '@auth-api/schema';
 import cookieParser from 'cookie-parser';
 import 'reflect-metadata';
 import Access from '@auth-entity/access';
+import cors from 'cors';
 
 dotenv.config();
 createConnection()
   .then(async (connection) => {
     await Access.load();
     const app = express();
+    const corsOptions = {
+      origin: process.env.CORS_ORIGIN!,
+      credentials: true,
+      optionsSuccessStatus: 200
+    };
+    app.use(cors(corsOptions));
     app.use(express.json());
     app.use(cookieParser());
 

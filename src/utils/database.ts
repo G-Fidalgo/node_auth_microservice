@@ -36,7 +36,6 @@ export default class Databse<T> {
 
   public async get(filter: Object): Promise<T | undefined> {
     try {
-      // e.g filter = { ukey: '123-key};
       return await this.repo.findOne(filter);
     } catch (error) {
       console.log(error);
